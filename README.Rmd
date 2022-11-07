@@ -1,0 +1,29 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  comment = "#>"
+)
+```
+
+# Riot Tech Blog Exploration
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of riot_tech is to explore the [riotengineeringtechblog](https://technology.riotgames.com/) with the help of social metadata using the [disqus API](https://disqus.com/api/docs/).
+
+
+```{r summary}
+load("data/overall.RData")
+library(patchwork)
+g_all
+```
