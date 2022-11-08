@@ -25,5 +25,7 @@ The goal of riot_tech is to explore the [riotengineeringtechblog](https://techno
 ```{r summary}
 load("data/overall.RData")
 library(patchwork)
+library(forcats)
 g_all
+lm_fit
 ```

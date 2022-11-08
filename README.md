@@ -11,4 +11,4 @@ The goal of riot_tech is to explore the
 help of social metadata using the [disqus
 API](https://disqus.com/api/docs/).
 
-![](README_files/figure-gfm/summary-1.png)<!-- -->
+![](README_files/figure-gfm/summary-1.png)<!-- -->![](README_files/figure-gfm/summary-2.png)<!-- -->

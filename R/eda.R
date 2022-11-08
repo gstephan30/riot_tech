@@ -8,8 +8,18 @@ library(tidyr)
 
 api_secret <- Sys.getenv("api_secret")
 
+all_tags <- "https://technology.riotgames.com/" |> 
+  read_html() |> 
+  html_elements("a") |> 
+  html_attr("href") |> 
+  as_tibble() |> 
+  filter(str_detect(value, "tags")) |> 
+  pull()
+
+
 # helper function to read blog
 read_news_page <- function(url) {
+  # url <-  "https://technology.riotgames.com/tags/architecture"
   url |> 
     read_html() |> 
     html_elements("a") |> 
@@ -17,29 +27,45 @@ read_news_page <- function(url) {
     as_tibble() |> 
     filter(str_detect(value, "news/")) |> 
     distinct() |> 
-    mutate(page = url)
+    mutate(page = url,
+           cate = httr::parse_url(url)$path,
+           cate = str_remove(cate, "tags\\/"))
 }
 
 # loop over blog
-links <- NULL
-links[[1]] <- read_news_page("https://technology.riotgames.com/")
-i <- 2
-content <- paste0("https://technology.riotgames.com/node?page=", i-1) |> 
-  read_news_page()
-while (nrow(content) > 1) {
-  print(i)
-  links[[i]] <- content
-  i <- i + 1
-  
-  content <- paste0("https://technology.riotgames.com/node?page=", i-1) |> 
+parse_riot_blog <- function(url) {
+  # url <- "/tags/architecture"
+  print(url)
+  links <- NULL
+  links[[1]] <- read_news_page(paste0("https://technology.riotgames.com", url))
+  i <- 2
+  content <- paste0("https://technology.riotgames.com", url, "?page=", i-1) |> 
     read_news_page()
+  while (!all(links[[i-1]]$value %in% content$value)) {
+    print(i)
+    links[[i]] <- content
+    i <- i + 1
+    
+    content <- paste0("https://technology.riotgames.com", url, "?page=", i-1) |> 
+      read_news_page()
+  }
+  return(bind_rows(links) |> distinct())
+  
 }
 
-#get blog links
-links_vec <- bind_rows(links) |> 
-  distinct(value) |> 
-  mutate(value = ifelse(grepl("^http", value), value, paste0("https://technology.riotgames.com", value))) |> 
-  pull()
+links <- map_df(all_tags, parse_riot_blog)
+links_cate <- links |> select(links = value, categories = cate) |> 
+  group_by(links) |> 
+  mutate(test = list(categories)) |> 
+  select(-categories) |> 
+  distinct() |> 
+  ungroup()
+
+# #get blog links
+# links_vec <- bind_rows(links) |> 
+#   distinct(value) |> 
+#   mutate(value = ifelse(grepl("^http", value), value, paste0("https://technology.riotgames.com", value))) |> 
+#   pull()
 
 #get blog entry information
 get_entries <- function(url) {
@@ -72,7 +98,7 @@ get_entries <- function(url) {
 }
 
 # loop over blogs
-all <- map_df(links_vec, get_entries)
+all <- map_df(links_cate$links, get_entries)
 
 vec_to_tibble <- function(raw_json) {
   tibble(
@@ -112,10 +138,10 @@ get_treads <- function(forum){
 blog <- get_treads("riotengineeringtechblog")
 
 # clean up all the mess oO
-test <- all |> 
+combined <- all |> 
   rowwise() |> 
   mutate(#merger = (url, "http\\:\\/\\/|https\\:\\/\\/"),
-    merger = httr::parse_url(url)$path) |> select(-url) |> distinct() |> 
+    merger = httr::parse_url(url)$path) |> distinct() |> 
   full_join(
     blog |> 
       select(link, clean_title, dislikes, likes, posts, id) |>
@@ -138,11 +164,22 @@ test <- all |>
       mutate(#merger = str_remove(link, "http\\:\\/\\/|https\\:\\/\\/"),
         merger = httr::parse_url(link)$path) 
   ) |> 
-  ungroup()
+  ungroup() |> 
+  left_join(
+    links_cate |> 
+      rename(url = links)
+  )
 
 # test |> select(-text) |> 
 #   arrange(desc(date_published)) |> 
 #   print(n = 300)
+
+test <- combined |> 
+  select(date_published, title, text, url, dislikes, likes, posts, categories = test) |> 
+  distinct() |> 
+  group_by(title) |> 
+  filter(posts == max(posts)) |> 
+  ungroup() 
 
 # plot!
 library(ggplot2)
@@ -187,4 +224,41 @@ g3 <- test |>
 library(patchwork)
 g_all <- g1 / g2 / g3 +
   plot_annotation(caption = paste0("Data Sources:\n@https://technology.riotgames.com/ &\n@https://disqus.com/api/docs/\nDate: ", Sys.Date()))
-save(g_all, file = "data/overall.RData")
+
+library(forcats)
+lm_fit <- test |> 
+  drop_na() |> 
+  mutate(engagements = likes+posts-dislikes,
+         date_published = lubridate::floor_date(date_published, "quarter")) |> 
+  select(url, engagements, categories) |>
+  unnest(categories) |> 
+  mutate(ind = 1) |> 
+  distinct() |> 
+  pivot_wider(names_from = categories, values_from = ind, values_fill = 0) |> 
+  select(-url) |> 
+  lm(engagements ~ ., data = _) |> 
+  broom.helpers::tidy_and_attach(conf.int = TRUE) |> 
+  broom.helpers::tidy_add_reference_rows() |> 
+  broom.helpers::tidy_add_estimate_to_reference_rows() |> 
+  broom.helpers::tidy_add_term_labels() |> 
+  broom.helpers::tidy_remove_intercept() |> 
+  mutate(
+    plot_label = paste(var_label, label, sep = ":") %>% 
+      forcats::fct_inorder() %>%
+      forcats::fct_rev()
+  ) %>%
+  ggplot(aes(estimate, fct_reorder(term, estimate), xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_errorbarh(height = 0.2) +
+  geom_point() +
+  labs(x = "Estimate",
+       y = NULL,
+       title = "What Thread categories have more engagements?") +
+  theme_light() +
+  theme(legend.position = "none") 
+
+
+save(g_all, lm_fit, file = "data/overall.RData")
+
+
+
