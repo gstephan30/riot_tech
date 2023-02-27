@@ -5,6 +5,7 @@ library(stringr)
 library(purrr)
 library(jsonlite)
 library(tidyr)
+library(readr)
 
 api_secret <- Sys.getenv("api_secret")
 
@@ -179,7 +180,12 @@ test <- combined |>
   distinct() |> 
   group_by(title) |> 
   filter(posts == max(posts)) |> 
-  ungroup() 
+  ungroup() |> 
+  mutate(checked = Sys.Date()) |> 
+  bind_rows(read_rds("data/blogs.rds")) |> 
+  distinct()
+
+write_rds(test, "data/blogs.rds")
 
 # plot!
 library(ggplot2)
@@ -256,6 +262,7 @@ lm_fit <- test |>
        title = "What Thread categories have more engagements?") +
   theme_light() +
   theme(legend.position = "none") 
+
 
 
 save(g_all, lm_fit, file = "data/overall.RData")
